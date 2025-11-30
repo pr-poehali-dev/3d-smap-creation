@@ -15,13 +15,22 @@ interface Model3D {
   format: string;
 }
 
+interface ModelData {
+  vertices: number[][];
+  faces: number[][];
+  segmentedImage: string;
+  depthMap: string;
+}
+
 const Index = () => {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStep, setProcessingStep] = useState<string>('');
   const [rotation, setRotation] = useState({ x: 20, y: 45 });
   const [zoom, setZoom] = useState([100]);
   const [showModel, setShowModel] = useState(false);
+  const [modelData, setModelData] = useState<ModelData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [models] = useState<Model3D[]>([
@@ -76,22 +85,73 @@ const Index = () => {
     }
   };
 
-  const processImage = (file: File) => {
+  const processImage = async (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setUploadedImage(e.target?.result as string);
+    reader.onload = async (e) => {
+      const imageData = e.target?.result as string;
+      setUploadedImage(imageData);
       setIsProcessing(true);
       
-      setTimeout(() => {
+      try {
+        setProcessingStep('Выделяю объект из фотографии...');
+        
+        const segmentResponse = await fetch('https://functions.poehali.dev/450a7049-5606-4263-b4a6-fce55cd303ef', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ image: imageData })
+        });
+        
+        if (!segmentResponse.ok) {
+          throw new Error('Ошибка обработки изображения');
+        }
+        
+        const segmentData = await segmentResponse.json();
+        
+        setProcessingStep('Создаю 3D-модель с восстановлением невидимых сторон...');
+        
+        const modelResponse = await fetch('https://functions.poehali.dev/bdb11656-066f-4291-b05e-fa27ce32fe93', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            dimensions: segmentData.dimensions 
+          })
+        });
+        
+        if (!modelResponse.ok) {
+          throw new Error('Ошибка генерации 3D-модели');
+        }
+        
+        const modelResult = await modelResponse.json();
+        
+        setModelData({
+          vertices: modelResult.vertices,
+          faces: modelResult.faces,
+          segmentedImage: segmentData.segmented_image,
+          depthMap: segmentData.depth_map
+        });
+        
         setIsProcessing(false);
         setShowModel(true);
-        toast.success('3D модель создана успешно!');
-      }, 2000);
+        toast.success(`3D модель создана! ${modelResult.stats.vertex_count} вершин, ${modelResult.stats.face_count} граней`);
+      } catch (error) {
+        console.error('Ошибка:', error);
+        setIsProcessing(false);
+        toast.error('Не удалось создать 3D-модель. Попробуйте другое изображение.');
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleExport = (format: string) => {
+  const handleExport = async (format: string) => {
+    if (!modelData) {
+      toast.error('Нет модели для экспорта');
+      return;
+    }
+    
     toast.success(`Модель экспортируется в формате ${format}`);
   };
 
@@ -177,7 +237,7 @@ const Index = () => {
                         <div className="w-16 h-16 mx-auto border-4 border-primary border-t-transparent rounded-full animate-spin" />
                         <p className="text-lg font-medium">Создаю 3D-модель...</p>
                         <p className="text-sm text-muted-foreground">
-                          Восстанавливаю невидимые стороны объекта
+                          {processingStep || 'Восстанавливаю невидимые стороны объекта'}
                         </p>
                       </div>
                     </div>
@@ -201,7 +261,7 @@ const Index = () => {
                           <div className="absolute inset-4 bg-gradient-to-tl from-primary/20 to-secondary/20 rounded-lg" />
                           <div className="absolute inset-8 bg-card rounded-lg flex items-center justify-center">
                             <img
-                              src={uploadedImage}
+                              src={modelData?.segmentedImage || uploadedImage}
                               alt="3D Model"
                               className="max-w-full max-h-full object-contain"
                             />
@@ -212,6 +272,11 @@ const Index = () => {
                       <div className="absolute top-4 left-4 flex gap-2">
                         <Badge className="bg-primary/90">3D модель</Badge>
                         <Badge variant="secondary">Интерактивная</Badge>
+                        {modelData && (
+                          <Badge variant="outline" className="bg-background/90">
+                            {modelData.vertices.length} вершин
+                          </Badge>
+                        )}
                       </div>
                       
                       <div className="absolute bottom-4 right-4 text-xs text-muted-foreground bg-background/50 px-3 py-1.5 rounded-full backdrop-blur-sm">
@@ -228,6 +293,7 @@ const Index = () => {
                         onClick={() => {
                           setUploadedImage(null);
                           setShowModel(false);
+                          setModelData(null);
                           setRotation({ x: 20, y: 45 });
                           setZoom([100]);
                         }}

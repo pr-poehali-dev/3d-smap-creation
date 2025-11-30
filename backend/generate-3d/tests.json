@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS request for CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "POST with dimensions",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "dimensions": {
+          "width": 100,
+          "height": 100
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "status": "success"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

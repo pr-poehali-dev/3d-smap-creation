@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS request for CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "POST with valid image",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "status": "string",
+        "segmented_image": "string",
+        "depth_map": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
