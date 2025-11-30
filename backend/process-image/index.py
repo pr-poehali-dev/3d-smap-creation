@@ -57,33 +57,41 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     img = Image.open(BytesIO(img_bytes))
     
     img = img.convert('RGBA')
+    width, height = img.size
     
     img_gray = img.convert('L')
     
-    edges = img_gray.filter(ImageFilter.FIND_EDGES)
-    edges_enhanced = edges.point(lambda x: 255 if x > 30 else 0)
+    from PIL import ImageEnhance, ImageChops, ImageDraw
+    import numpy as np
     
-    from PIL import ImageChops, ImageEnhance
     contrast = ImageEnhance.Contrast(img_gray)
-    high_contrast = contrast.enhance(2.0)
+    high_contrast = contrast.enhance(2.5)
     
-    threshold = 80
-    binary = high_contrast.point(lambda x: 255 if x > threshold else 0)
+    edges = high_contrast.filter(ImageFilter.FIND_EDGES)
+    edges = edges.filter(ImageFilter.MaxFilter(3))
     
-    kernel_size = 5
-    dilated = binary.filter(ImageFilter.MaxFilter(kernel_size))
-    eroded = dilated.filter(ImageFilter.MinFilter(kernel_size))
+    pixels = np.array(high_contrast)
     
-    mask = eroded.filter(ImageFilter.GaussianBlur(3))
+    threshold = np.percentile(pixels, 15)
     
-    mask_array = mask.load()
-    width, height = mask.size
-    for y in range(height):
-        for x in range(width):
-            if mask_array[x, y] < 128:
-                mask_array[x, y] = 0
-            else:
-                mask_array[x, y] = 255
+    mask_pixels = (pixels > threshold).astype(np.uint8) * 255
+    
+    from scipy import ndimage
+    labeled, num_features = ndimage.label(mask_pixels)
+    
+    if num_features > 0:
+        component_sizes = [(i, np.sum(labeled == i)) for i in range(1, num_features + 1)]
+        component_sizes.sort(key=lambda x: x[1], reverse=True)
+        
+        largest_component = component_sizes[0][0]
+        mask_pixels = (labeled == largest_component).astype(np.uint8) * 255
+    
+    struct = ndimage.generate_binary_structure(2, 2)
+    mask_pixels = ndimage.binary_closing(mask_pixels, structure=struct, iterations=3).astype(np.uint8) * 255
+    mask_pixels = ndimage.binary_opening(mask_pixels, structure=struct, iterations=2).astype(np.uint8) * 255
+    
+    mask = Image.fromarray(mask_pixels)
+    mask = mask.filter(ImageFilter.GaussianBlur(2))
     
     segmented = Image.new('RGBA', img.size, (0, 0, 0, 0))
     segmented.paste(img, mask=mask)
@@ -94,14 +102,26 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     result_base64 = base64.b64encode(output.read()).decode('utf-8')
     
-    width, height = img.size
     aspect_ratio = width / height
     
-    depth_map = img_gray.filter(ImageFilter.GaussianBlur(5))
+    depth_pixels = np.array(img_gray).astype(float)
+    depth_pixels = ndimage.gaussian_filter(depth_pixels, sigma=3)
+    
+    mask_array = np.array(mask)
+    depth_pixels = depth_pixels * (mask_array / 255.0)
+    
+    depth_pixels = (depth_pixels - depth_pixels.min()) / (depth_pixels.max() - depth_pixels.min() + 1e-8) * 255
+    
+    depth_map = Image.fromarray(depth_pixels.astype(np.uint8))
     depth_output = BytesIO()
     depth_map.save(depth_output, format='PNG')
     depth_output.seek(0)
     depth_base64 = base64.b64encode(depth_output.read()).decode('utf-8')
+    
+    mask_output = BytesIO()
+    mask.save(mask_output, format='PNG')
+    mask_output.seek(0)
+    mask_base64 = base64.b64encode(mask_output.read()).decode('utf-8')
     
     return {
         'statusCode': 200,
@@ -113,6 +133,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         'body': json.dumps({
             'segmented_image': f'data:image/png;base64,{result_base64}',
             'depth_map': f'data:image/png;base64,{depth_base64}',
+            'mask': f'data:image/png;base64,{mask_base64}',
             'dimensions': {
                 'width': width,
                 'height': height,
