@@ -59,11 +59,31 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     img = img.convert('RGBA')
     
     img_gray = img.convert('L')
-    edges = img_gray.filter(ImageFilter.FIND_EDGES)
-    edges = edges.point(lambda x: 0 if x < 50 else 255)
     
-    mask = img_gray.point(lambda x: 255 if x > 30 else 0)
-    mask = mask.filter(ImageFilter.GaussianBlur(2))
+    edges = img_gray.filter(ImageFilter.FIND_EDGES)
+    edges_enhanced = edges.point(lambda x: 255 if x > 30 else 0)
+    
+    from PIL import ImageChops, ImageEnhance
+    contrast = ImageEnhance.Contrast(img_gray)
+    high_contrast = contrast.enhance(2.0)
+    
+    threshold = 80
+    binary = high_contrast.point(lambda x: 255 if x > threshold else 0)
+    
+    kernel_size = 5
+    dilated = binary.filter(ImageFilter.MaxFilter(kernel_size))
+    eroded = dilated.filter(ImageFilter.MinFilter(kernel_size))
+    
+    mask = eroded.filter(ImageFilter.GaussianBlur(3))
+    
+    mask_array = mask.load()
+    width, height = mask.size
+    for y in range(height):
+        for x in range(width):
+            if mask_array[x, y] < 128:
+                mask_array[x, y] = 0
+            else:
+                mask_array[x, y] = 255
     
     segmented = Image.new('RGBA', img.size, (0, 0, 0, 0))
     segmented.paste(img, mask=mask)

@@ -6,6 +6,7 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import Model3DViewer from '@/components/Model3DViewer';
 
 interface Model3D {
   id: string;
@@ -117,7 +118,8 @@ const Index = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ 
-            dimensions: segmentData.dimensions 
+            dimensions: segmentData.dimensions,
+            depth_map: segmentData.depth_map
           })
         });
         
@@ -243,40 +245,27 @@ const Index = () => {
                     </div>
                   )}
                   
-                  {showModel && (
+                  {showModel && modelData && (
                     <div
                       className="relative aspect-square bg-gradient-to-br from-muted to-background rounded-xl overflow-hidden cursor-grab active:cursor-grabbing"
                       onMouseMove={handleMouseMove}
                     >
                       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(155,135,245,0.1),transparent_50%)]" />
                       
-                      <div
-                        className="absolute inset-0 flex items-center justify-center transition-transform duration-100"
-                        style={{
-                          transform: `perspective(1000px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) scale(${zoom[0] / 100})`
-                        }}
-                      >
-                        <div className="w-64 h-64 relative animate-rotate-slow">
-                          <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-secondary/30 rounded-lg transform rotate-45" />
-                          <div className="absolute inset-4 bg-gradient-to-tl from-primary/20 to-secondary/20 rounded-lg" />
-                          <div className="absolute inset-8 bg-card rounded-lg flex items-center justify-center">
-                            <img
-                              src={modelData?.segmentedImage || uploadedImage}
-                              alt="3D Model"
-                              className="max-w-full max-h-full object-contain"
-                            />
-                          </div>
-                        </div>
-                      </div>
+                      <Model3DViewer
+                        vertices={modelData.vertices}
+                        faces={modelData.faces}
+                        rotation={rotation}
+                        zoom={zoom[0]}
+                        segmentedImage={modelData.segmentedImage}
+                      />
                       
                       <div className="absolute top-4 left-4 flex gap-2">
                         <Badge className="bg-primary/90">3D модель</Badge>
-                        <Badge variant="secondary">Интерактивная</Badge>
-                        {modelData && (
-                          <Badge variant="outline" className="bg-background/90">
-                            {modelData.vertices.length} вершин
-                          </Badge>
-                        )}
+                        <Badge variant="secondary">Объёмная</Badge>
+                        <Badge variant="outline" className="bg-background/90">
+                          {modelData.vertices.length} вершин
+                        </Badge>
                       </div>
                       
                       <div className="absolute bottom-4 right-4 text-xs text-muted-foreground bg-background/50 px-3 py-1.5 rounded-full backdrop-blur-sm">

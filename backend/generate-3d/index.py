@@ -2,6 +2,8 @@ import json
 import base64
 from typing import Dict, Any
 import math
+from PIL import Image
+from io import BytesIO
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
@@ -37,6 +39,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     body_data = json.loads(event.get('body', '{}'))
     dimensions = body_data.get('dimensions', {'width': 100, 'height': 100})
+    depth_map_data = body_data.get('depth_map', '')
     
     width = dimensions.get('width', 100)
     height = dimensions.get('height', 100)
@@ -44,21 +47,42 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     vertices = []
     faces = []
     normals = []
+    uvs = []
     
-    grid_size = 20
-    step_x = width / grid_size
-    step_y = height / grid_size
+    grid_size = 40
+    depth_scale = 0.5
+    
+    depth_values = []
+    if depth_map_data:
+        try:
+            if ',' in depth_map_data:
+                depth_map_data = depth_map_data.split(',')[1]
+            depth_bytes = base64.b64decode(depth_map_data)
+            depth_img = Image.open(BytesIO(depth_bytes)).convert('L')
+            depth_img = depth_img.resize((grid_size + 1, grid_size + 1))
+            for i in range(grid_size + 1):
+                row = []
+                for j in range(grid_size + 1):
+                    pixel_value = depth_img.getpixel((j, i))
+                    normalized = pixel_value / 255.0
+                    row.append(normalized)
+                depth_values.append(row)
+        except:
+            depth_values = [[0.5 for _ in range(grid_size + 1)] for _ in range(grid_size + 1)]
+    else:
+        depth_values = [[0.5 for _ in range(grid_size + 1)] for _ in range(grid_size + 1)]
     
     for i in range(grid_size + 1):
         for j in range(grid_size + 1):
             x = (j / grid_size - 0.5) * 2
             y = (0.5 - i / grid_size) * 2
             
-            dist_from_center = math.sqrt(x*x + y*y)
-            z = max(0, 0.3 - dist_from_center * 0.15)
+            depth = depth_values[i][j]
+            z_front = depth * depth_scale
             
-            vertices.append([x, y, z])
+            vertices.append([x, y, z_front])
             normals.append([0, 0, 1])
+            uvs.append([j / grid_size, i / grid_size])
     
     for i in range(grid_size):
         for j in range(grid_size):
@@ -73,14 +97,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             faces.append([v2, v4, v3])
     
     back_offset = len(vertices)
+    back_depth = -0.15
     for i in range(grid_size + 1):
         for j in range(grid_size + 1):
             x = (j / grid_size - 0.5) * 2
             y = (0.5 - i / grid_size) * 2
-            z = -0.1
             
-            vertices.append([x, y, z])
+            depth = depth_values[i][j]
+            z_back = depth * depth_scale + back_depth
+            
+            vertices.append([x, y, z_back])
             normals.append([0, 0, -1])
+            uvs.append([j / grid_size, i / grid_size])
     
     for i in range(grid_size):
         for j in range(grid_size):
@@ -93,6 +121,25 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             
             faces.append([v1, v3, v2])
             faces.append([v2, v3, v4])
+    
+    side_offset = len(vertices)
+    for i in range(grid_size + 1):
+        front_idx = i * (grid_size + 1)
+        back_idx = back_offset + i * (grid_size + 1)
+        
+        vertices.append(vertices[front_idx])
+        vertices.append(vertices[back_idx])
+        normals.append([-1, 0, 0])
+        normals.append([-1, 0, 0])
+    
+    for i in range(grid_size + 1):
+        front_idx = i * (grid_size + 1) + grid_size
+        back_idx = back_offset + i * (grid_size + 1) + grid_size
+        
+        vertices.append(vertices[front_idx])
+        vertices.append(vertices[back_idx])
+        normals.append([1, 0, 0])
+        normals.append([1, 0, 0])
     
     obj_content = "# 3D Smap Generated Model\n\n"
     
